@@ -451,10 +451,9 @@ Goes to goal
 */
 void goToGoal(double x, double y) {
   Serial.println("Going To Goal");
-  double desiredAngle = atan2(y,x);
-  desiredAngle = 360-desiredAngle;
+  double desiredAngle = atan2(y,x) * 180 / Pi;
   Serial.println(desiredAngle);
-  goToAngle(-desiredAngle);
+  goToAngle(desiredAngle);
   delay(400);
   double distance = sqrt( x*x + y*y );
   Serial.println(distance);
