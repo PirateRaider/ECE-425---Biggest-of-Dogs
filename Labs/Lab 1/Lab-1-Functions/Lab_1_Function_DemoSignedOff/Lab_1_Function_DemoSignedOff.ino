@@ -41,7 +41,7 @@
   digital pin 18 - left encoder pin
   digital pin 19 - right encoder pin
 
-  Wheel Diamter = 8.5 cm, 26.7035375555 cm circumference
+  Wheel Diameter = 8.5 cm, 26.7035375555 cm circumference
   Wheel Distance = 21.5 cm
   Stepper motor = 0.45 degree steps
 */
