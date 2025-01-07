@@ -29,7 +29,7 @@ void setup() {
 }
 
 //thie function will read the left or right sensor based upon input value
-  uint16_t readSonar(uint16_t side) {
+uint16_t readSonar(uint16_t side) {
   uint16_t distance;
   uint32_t pulseWidthUs;
   int16_t dist, temp, dist_in;
@@ -53,8 +53,8 @@ void setup() {
 
 void loop() {
   //uncomment next 2 lines to test left sonar
-  //Serial.print("LEFT: ");
-  //readSonar(LEFT);
+  Serial.print("LEFT: ");
+  readSonar(LEFT);
 
   //uncomment next 2 lines to test right sonar
   Serial.print("RIGHT: ");

@@ -3,15 +3,14 @@
 //This code will show how to run the same code on the M4 and M7 to server and client, respectively
 //M4 will read sensor data and send to M7 to run the state machine
 
-
 #include "Arduino.h"
 #include "RPC.h"
 #define frontLdr 8
 #define backLdr 9
 #define leftLdr 10
 #define rightLdr 11
-#define leftSnr 7
-#define rightSnr 6
+#define leftSnr 4
+#define rightSnr 3
 #define led 12
 #define VELOCITY_TEMP(temp) ((331.5 + 0.6 * (float)(temp)) * 100 / 1000000.0)  // The ultrasonic velocity (cm/us) compensated by temperature
 int16_t trig_EchoPin[2] = { 3,4 };
@@ -28,7 +27,7 @@ struct lidar {
 } dist;
 
 
-// a struct to hold lidar data
+// a struct to hold sonar data
 struct sonar {
   // this can easily be extended to contain sonar data as well
   int left;
@@ -73,28 +72,6 @@ int read_sonar(int pin) {
   if (distance < 0 || distance > 50) { distance = 0; }
   return distance;
 } 
-/*
-uint16_t read_sonar(uint16_t side) {
-  uint16_t distance;
-  uint32_t pulseWidthUs;
-  int16_t dist, temp, dist_in;
-
-  pinMode(trig_EchoPin[side], OUTPUT);
-  digitalWrite(trig_EchoPin[side], LOW);
-  digitalWrite(trig_EchoPin[side], HIGH);  //Set the trig pin High
-  delayMicroseconds(10);               //Delay of 10 microseconds
-  digitalWrite(trig_EchoPin[side], LOW);   //Set the trig pin Low
-  pinMode(trig_EchoPin[side], INPUT);                //Set the pin to input mode
-  pulseWidthUs = pulseIn(trig_EchoPin[side], HIGH);  //Detect the high level time on the echo pin, the output high level time represents the ultrasonic flight time (unit: us)
-  distance = pulseWidthUs * VELOCITY_TEMP(20) / 2.0;  //The distance can be calculated according to the flight time of ultrasonic wave,/
-                                                        //and the ultrasonic sound speed can be compensated according to the actual ambient temperature
-  dist_in = 0.394*distance;    //convert cm to inches
-  Serial.print(dist_in, DEC);   //print inches
-  Serial.print(" inches ");                                          
-  Serial.print(distance, DEC);  //print cm
-  Serial.println(" cm");
-  return distance;
-} */
 
 //set up the M4 to be the server for the sensors data
 void setupM4() {
@@ -109,8 +86,8 @@ void loopM4() {
   dist.back = read_lidar(9);
   dist.left = read_lidar(10);
   dist.right = read_lidar(11);
-  dist2.right = read_sonar(6);
-  dist2.left = read_sonar(7);
+  dist2.right = read_sonar(3);
+  dist2.left = read_sonar(4);
 }
 
 //set up the M7 to be the client and run the state machine
@@ -126,6 +103,7 @@ void loopM7() {
   struct lidar data = RPC.call("read_lidars").as<struct lidar>();
   struct sonar data2 = RPC.call("read_sonars").as<struct sonar>();
   // print lidar data
+  
   Serial.print("lidar: ");
   Serial.print(data.front);
   Serial.print(", ");
@@ -135,11 +113,13 @@ void loopM7() {
   Serial.print(", ");
   Serial.print(data.right);
   Serial.println();
+  
   Serial.print("sonar: ");
   Serial.print(data2.left);
   Serial.print(", ");
   Serial.print(data2.right);
   Serial.println();
+  delay(100);
 }
 
 //setup function with infinite loops to send and receive sensor data between M4 and M7
