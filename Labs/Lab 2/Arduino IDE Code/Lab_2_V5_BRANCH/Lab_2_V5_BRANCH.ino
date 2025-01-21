@@ -59,6 +59,7 @@
 #define ylwLED 7            //yellow LED for displaying states
 #define enableLED 13        //stepper enabled LED
 int leds[3] = {5,6,7};      //array of LED pin numbers
+int frontFilter;
 
 //define motor pin numbers
 #define stepperEnable 48    //stepper enable pin on stepStick 
@@ -101,13 +102,18 @@ int accumTicks[2] = {0, 0};         //variable to hold accumulated ticks since l
 #define rightLdr 11
 #define leftSnr 4
 #define rightSnr 3
-int windowSize = 60;
+int windowSize = 4;
 MedianFilter2<int> rightSnrFilt(windowSize);
 MedianFilter2<int> leftSnrFilt(windowSize);
 MedianFilter2<int> frontLdrFilt(windowSize);
 MedianFilter2<int> backLdrFilt(windowSize);
 MedianFilter2<int> rightLdrFilt(windowSize);
 MedianFilter2<int> leftLdrFilt(windowSize);
+
+String state = "";
+int dangerDistance = 10;
+int offset = 3;
+int avoidDistance;
 
 // Structures
 // a struct to hold lidar data
@@ -138,6 +144,23 @@ struct lidar read_lidars() {
 // read_lidars is the function used to get lidar data to the M7
 struct sonar read_sonars() {
   return dist2;
+}
+
+int frontFilterFunction() {
+  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+  
+  if(frontFilter != data.front) {
+    frontLdrFilt.AddValue(data.front);
+    frontFilter = data.front;
+    Serial.println(data.front);
+  } 
+  
+  return frontLdrFilt.GetFiltered();
+}
+
+int frontFilterClear() {
+
+
 }
 
 // helper functions
@@ -480,72 +503,56 @@ void aggressiveKid() {
   int rightSpd = 500;
   int leftSpd = 500;
 
-  if (data.front < 3) {
+  if (data.front > 7) {
     stepperLeft.setSpeed(leftSpd);//set left motor speed
     stepperRight.setSpeed(rightSpd);//set right motor speed
     stepperLeft.runSpeed();
     stepperRight.runSpeed();
-    digitalWrite(redLED,LOW);
-    digitalWrite(grnLED,HIGH);
   } else {
     stepperLeft.stop();
     stepperRight.stop();
-    digitalWrite(redLED,HIGH);
-    digitalWrite(grnLED,LOW);
   }
 }
 
-void follow() {
+void curiousKid() {
 
   int gain = 7;
   int followMotorSpd = 10;
   int motorSpd = 350;
-  int bandDistance = 5;
+  int bandDistance = 3;
   bool done = 0;
 
-  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
-
-  Serial.println(data.front);
-
-  if (data.front < 3) {
+  int trackDistance = frontFilterFunction();
+  
+  if (trackDistance < 3) {
     stepperLeft.setSpeed(motorSpd);//set left motor speed
     stepperRight.setSpeed(motorSpd);//set right motor speed
     stepperLeft.runSpeed();
     stepperRight.runSpeed();
-    digitalWrite(redLED,LOW);
-    digitalWrite(ylwLED, LOW);
-    digitalWrite(grnLED,HIGH);
   } else {
     stepperLeft.stop();
     stepperRight.stop();
-    digitalWrite(redLED,HIGH);
-    digitalWrite(ylwLED, LOW);
-    digitalWrite(grnLED,LOW);
-    int distance = 10;
+    int distance = 14;
     delay(1000);
 
-    digitalWrite(redLED,LOW);
-    digitalWrite(ylwLED, HIGH);
-    digitalWrite(grnLED,HIGH);
-
     while(done == 0) {
-      struct lidar data = RPC.call("read_lidars").as<struct lidar>();
       Serial.println("Check For Speed:");
-      Serial.println(data.front);
-      if(data.front > distance + bandDistance) {
-        motorSpd = (data.front - distance)*gain + followMotorSpd;
+      trackDistance = frontFilterFunction();
+      Serial.println(trackDistance);
+      if(trackDistance > distance + bandDistance) {
+        motorSpd = (trackDistance - distance)*gain + followMotorSpd;
         stepperLeft.setSpeed(motorSpd);//set left motor speed
         stepperRight.setSpeed(motorSpd);//set right motor speed
         stepperLeft.runSpeed();
         stepperRight.runSpeed();
-      } else if (data.front < distance - bandDistance) {
+      } else if (trackDistance < distance - bandDistance) {
         Serial.println("Check If Done:");
-        Serial.println(data.front);
-        if(data.front < 1) {
+        Serial.println(trackDistance);
+        if(trackDistance < 1) {
           done = 1;
           Serial.println("I sense 0");
         }
-        motorSpd = (data.front - distance)*gain - followMotorSpd;
+        motorSpd = (trackDistance - distance)*gain - followMotorSpd;
         stepperLeft.setSpeed(motorSpd);//set left motor speed
         stepperRight.setSpeed(motorSpd);//set right motor speed
         stepperLeft.runSpeed();
@@ -560,14 +567,12 @@ void follow() {
     }
     Serial.println("Out of While");
     delay(2000);
+    
   }
+  
 }
 
 void shyKid() {
-
-  digitalWrite(redLED,LOW);
-  digitalWrite(ylwLED,HIGH);
-  digitalWrite(grnLED,LOW);
 
   // read lidar data from struct
   struct lidar data = RPC.call("read_lidars").as<struct lidar>();
@@ -580,15 +585,17 @@ void shyKid() {
   int delay_int = 1500;
 
   Serial.println();
-  print_lidar();
+  //print_lidar();
 
   if(data.front > minIRDistance && data.left > minIRDistance && data.right > minIRDistance && data.back > minIRDistance) {
     //detecting all Walls
     Serial.println("I'm Stuck");
-    goToAngle(45);
-    digitalWrite(redLED,HIGH);
-    digitalWrite(ylwLED,LOW);
-    digitalWrite(grnLED,LOW);
+    leftSpd = 0;
+    rightSpd = 0;
+    stepperLeft.setSpeed(leftSpd);//set left motor speed
+    stepperRight.setSpeed(rightSpd);//set right motor speed
+    stepperLeft.runSpeed();
+    stepperRight.runSpeed();
     delay(delay_int);
 
   } else if (data.front > minIRDistance && data.left > minIRDistance && data.right > minIRDistance && data.back < minIRDistance) {
@@ -610,18 +617,43 @@ void shyKid() {
     Serial.println("Detecting Front & Right");
     delay(delay_int);
 
-  } else if (data.front > minIRDistance && data.left < minIRDistance && data.right < minIRDistance) {
+  } else if (data.front > minIRDistance && data.left < minIRDistance && data.right < minIRDistance && data.back < minIRDistance) {
     // Just Detecting Front
-    if (changeEveryOther == 1) {
+    int backSpeed = (15 - data.front) * 15 + 50;
+    Serial.println("Detecting Just Front");
+    Serial.println(backSpeed);
+
+    rightSpd = -backSpeed;
+    leftSpd = -backSpeed;
+
+    stepperLeft.setSpeed(leftSpd);//set left motor speed
+    stepperRight.setSpeed(rightSpd);//set right motor speed
+    stepperLeft.runSpeed();
+    stepperRight.runSpeed();
+  } else if (data.front > minIRDistance && data.left < minIRDistance && data.right < minIRDistance && data.back > minIRDistance) {
+    // Detecting Front & Back
+    if (changeEveryOther ==1) {
       goToAngle(90);
+      Serial.println("Detecting Front & Back");
+      delay(delay_int);
       changeEveryOther = 0;
     } else {
-      goToAngle(-90);
+      goToAngle(90);
+      Serial.println("Detecting Front & Back");
+      delay(delay_int);
       changeEveryOther = 1;
     }
+  
+  } else if (data.front < minIRDistance && data.left < minIRDistance && data.right < minIRDistance && data.back < minIRDistance) {
+    // Detects Nothing
+    Serial.println("Detecting Nothing");
+    leftSpd = 0;
+    rightSpd = 0;
+    stepperLeft.setSpeed(leftSpd);//set left motor speed
+    stepperRight.setSpeed(rightSpd);//set right motor speed
+    stepperLeft.runSpeed();
+    stepperRight.runSpeed();
 
-    //Serial.println("Turning 90 Degrees Right");
-    delay(delay_int);
 
   } else {
     // Detecting Nothing in Front
@@ -666,7 +698,7 @@ void loopM4() {
 //set up the M7 to be the client and run the state machine
 void setupM7() {
   // begin serial interface
-  String state = "wander";
+  state = "wander";
   int baudrate = 9600; //serial monitor baud rate'
   init_stepper(); //set up stepper motor
 
@@ -681,8 +713,59 @@ void setupM7() {
 //read sensor data from M4 and write to M7
 void loopM7() {
 
-  follow();
-  read_lidars();
+
+
+  // Smart Wander
+  if(state.equals("wander")) {
+    randomWander();
+    struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+    Serial.println(state);
+
+    digitalWrite(redLED,LOW);
+    digitalWrite(ylwLED,LOW);
+    digitalWrite(grnLED,HIGH);
+
+
+    if(data.front < dangerDistance || data.back < dangerDistance || data.left < dangerDistance || data.right < dangerDistance) {
+      state = "collide";
+      delay(2000);
+      Serial.println("Detected Object, Going From Wander To Collide");
+    }
+
+  } else if (state.equals("collide")) {
+    digitalWrite(redLED,HIGH);
+    digitalWrite(ylwLED,LOW);
+    digitalWrite(grnLED,LOW);
+    aggressiveKid();
+    struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+    Serial.println(state);
+    print_lidar();
+    if(data.front == 0 && data.back == 0 && data.left == 0 && data.right == 0) {
+      state = "wander";
+      delay(2000);
+      Serial.println("Detected No Objects, Going From Collide To Wander");
+    } else if ((int)data.front < 10) {
+      state = "avoid";
+      delay(2000);
+      Serial.println("Objects Are Closer, Going From Collide To Avoid");
+    }
+  } else if(state.equals("avoid")) {
+    Serial.println(state);
+    digitalWrite(redLED,LOW);
+    digitalWrite(ylwLED,HIGH);
+    digitalWrite(grnLED,LOW);
+    shyKid();
+    struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+    if(data.front == 0 && data.back == 0 && data.left == 0 && data.right == 0) {
+      state = "wander";
+      delay(2000);
+      Serial.println("Objects Are Gone, Going From Avoid To Wander");
+    }
+  } else {
+    Serial.println("Bad State");
+  }
+
+  
 
 }
 
