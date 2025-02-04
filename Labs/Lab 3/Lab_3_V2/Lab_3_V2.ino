@@ -112,12 +112,17 @@ MedianFilter2<int> backLdrFilt(windowSize);
 MedianFilter2<int> rightLdrFilt(windowSize);
 MedianFilter2<int> leftLdrFilt(windowSize);
 
+// Global Variables
 String state = "";
 int dangerDistance = 10;
 int offset = 3;
 int avoidDistance;
 bool frontWall;
 int wallDetected = 0;
+int leftSpd = 0;
+int rightSpd = 0;
+int frontDistance = 0;
+int nonFrontDistance = 0;
 
 // Structures
 // a struct to hold lidar data
@@ -817,12 +822,16 @@ void followWall() {
       // Was previously sensing right wall
       goForward(15);
       goToAngle(-90);
+      goForward(45);
       wallDetected = 0;
     } else if (wallDetected == 2) {
       // Was previously sensing left wall
       goForward(15);
       goToAngle(90);
+      goForward(45);
       wallDetected = 0;
+    } else if (wallDetected == 0) {
+      randomWander();
     }
     leftSpd = regSpd;
     rightSpd = regSpd;
@@ -833,6 +842,74 @@ void followWall() {
   stepperLeft.runSpeed();
   stepperRight.runSpeed();
 }
+/*
+  Fcn hallway goes down the hallway, returns, and then turns based on the detected wall dissapearance
+
+void hallway() {
+
+  while(state.equals("forward")) {
+    struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+    Serial.println(data.front);
+    digitalWrite(grnLED, HIGH);
+    digitalWrite(ylwLED, LOW);
+    digitalWrite(redLED, LOW);
+
+    if(data.front > 1 && data.front < 10) {
+      state = "backward";
+      digitalWrite(grnLED, LOW);
+      digitalWrite(ylwLED, HIGH);
+      digitalWrite(redLED, LOW);
+      delay(500);
+    }
+
+    leftSpd = 150;
+    rightSpd = 150;
+
+    stepperLeft.setSpeed(leftSpd);//set left motor speed
+    stepperRight.setSpeed(rightSpd);//set right motor speed
+    stepperLeft.runSpeed();
+    stepperRight.runSpeed();
+  }
+  while(state.equals("backward")) {
+    struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+
+    if(data.left < 1) {
+      state = "follow";
+      digitalWrite(grnLED, LOW);
+      digitalWrite(ylwLED, LOW);
+      digitalWrite(redLED, HIGH);
+      delay(500);
+      goForward(-25);
+      delay(500);
+      goToAngle(90);
+      delay(500);
+    }
+    if(data.right < 1) {
+      state = "follow";
+      digitalWrite(grnLED, LOW);
+      digitalWrite(ylwLED, HIGH);
+      digitalWrite(redLED, HIGH);
+      delay(500);
+      goForward(-25);
+      delay(500);
+      goToAngle(-90);
+      delay(500);
+    }
+
+    leftSpd = -150;
+    rightSpd = -150;
+
+    stepperLeft.setSpeed(leftSpd);//set left motor speed
+    stepperRight.setSpeed(rightSpd);//set right motor speed
+    stepperLeft.runSpeed();
+    stepperRight.runSpeed();
+  }
+  while(state.equals("follow")) {
+    followWall();
+  }
+
+}
+*/
 
 // Setup for Multi-Core
 //set up the M4 to be the server for the sensors data
@@ -854,8 +931,9 @@ void loopM4() {
 
 //set up the M7 to be the client and run the state machine
 void setupM7() {
+
   // begin serial interface
-  state = "wander";
+  state = "forward";
   int baudrate = 9600; //serial monitor baud rate'
   init_stepper(); //set up stepper motor
 
@@ -869,11 +947,19 @@ void setupM7() {
 
 //read sensor data from M4 and write to M7
 void loopM7() {
-  followWall();
+  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
+  if(data.front < 10 && data.front > 2) {
+    goForward(1);
+    if(faceX = true) {
+      frontDistance = frontDistance + 1;
+    } else (facePositiveY = true) {
+      
+    }
+  } else {
+    goForward(1);
+    distance = distance + 1;
+  }
 }
-
-
-//// MAIN
 
 //setup function with infinite loops to send and receive sensor data between M4 and M7
 void setup() {
