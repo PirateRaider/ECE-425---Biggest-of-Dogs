@@ -609,30 +609,33 @@ void setup() {
 // main loop, runs infintely on the M7 core. 
 void loop() {
   // read lidar data from struct
-  struct lidar data = readLidar(1);
+  struct lidar data = readLidar(0);
   Serial.println(data.rightPhoto);
+  Serial.println(data.leftPhoto);
+  Serial.println();
+  delay(500);
   
 
   // follow
-  // if (data.front < 0) {
-  //   digitalWrite(ylwLED, LOW);
-  //   digitalWrite(grnLED, HIGH);
-  //   digitalWrite(redLED, LOW);
-  //   // stop();
-  //   randomWander();
-  // } else if (data.front >= 20) {
-  //   digitalWrite(ylwLED, LOW);
-  //   digitalWrite(grnLED, LOW);
-  //   digitalWrite(redLED, HIGH);
-  //   // collide(data);
-  //   forward(2);
-  // } else if (data.front <= 8) { // data.front is between ~25 and 15
-  //   digitalWrite(ylwLED, HIGH);
-  //   digitalWrite(grnLED, HIGH);
-  //   digitalWrite(redLED, LOW);
-  //   // follow(data);
-  //   forward(-2);
-  // } else {
-  //   stop();
-  // }
+  if (data.front < 0) {
+     digitalWrite(ylwLED, LOW);
+     digitalWrite(grnLED, HIGH);
+     digitalWrite(redLED, LOW);
+     // stop();
+     randomWander();
+  } else if (data.front >= 20) {
+    digitalWrite(ylwLED, LOW);
+    digitalWrite(grnLED, LOW);
+    digitalWrite(redLED, HIGH);
+    // collide(data);
+    forward(2);
+  } else if (data.front <= 8) { // data.front is between ~25 and 15
+    digitalWrite(ylwLED, HIGH);
+    digitalWrite(grnLED, HIGH);
+    digitalWrite(redLED, LOW);
+    // follow(data);
+    forward(-2);
+  } else {
+    stop();
+  }
 }

@@ -50,7 +50,6 @@
 #include <AccelStepper.h>//include the stepper motor library
 #include <MultiStepper.h>//include multiple stepper motor library
 #include <RPC.h>
-#include "MedianFilterLib2.h"
 
 //state LEDs connections
 #define redLED 5            //red LED for displaying states
@@ -104,18 +103,11 @@ int accumTicks[2] = {0, 0};         //variable to hold accumulated ticks since l
 #define rightLdr 11
 #define leftSnr 4
 #define rightSnr 3
-#define leftLight A1
-#define rightLight A0
-int windowSize = 4;
-MedianFilter2<int> rightSnrFilt(windowSize);
-MedianFilter2<int> leftSnrFilt(windowSize);
-MedianFilter2<int> frontLdrFilt(windowSize);
-MedianFilter2<int> backLdrFilt(windowSize);
-MedianFilter2<int> rightLdrFilt(windowSize);
-MedianFilter2<int> leftLdrFilt(windowSize);
+#define leftLight 45
+#define rightLight 43
 
 // Global Variables
-String state = "random";
+String state = "forward";
 int dangerDistance = 10;
 int offset = 3;
 int avoidDistance;
@@ -126,11 +118,6 @@ int rightSpd = 0;
 int frontDistance = 0;
 int nonFrontDistance = 1;
 String direction = "north";
-int leftDetect;
-int rightDetect;
-int photoOffset = 200;
-int environmentAverage = 0;
-int baseSpeed = 500;
 
 // Structures
 // a struct to hold lidar data
@@ -174,58 +161,6 @@ struct light read_lights() {
   return dist3;
 }
 
-int frontFilterFunction() {
-  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
-  
-  if(frontFilter != data.front) {
-    frontLdrFilt.AddValue(data.front);
-    frontFilter = data.front;
-    Serial.println(data.front);
-  }
-  
-  return frontLdrFilt.GetFiltered();
-}
-
-int leftFilterFunction() {
-  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
-  
-  if(frontFilter != data.left) {
-    leftLdrFilt.AddValue(data.left);
-    leftFilter = data.left;
-    Serial.println(data.left);
-  }
-  
-  return leftLdrFilt.GetFiltered();
-}
-
-int rightFilterFunction() {
-  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
-  
-  if(rightFilter != data.right) {
-    rightLdrFilt.AddValue(data.right);
-    rightFilter = data.right;
-    Serial.println(data.right);
-  }
-  
-  return rightLdrFilt.GetFiltered();
-}
-
-int backFilterFunction() {
-  struct lidar data = RPC.call("read_lidars").as<struct lidar>();
-  
-  if(backFilter != data.back) {
-    backLdrFilt.AddValue(data.back);
-    backFilter = data.back;
-    Serial.println(data.back);
-  }
-  
-  return backLdrFilt.GetFiltered();
-}
-
-void frontFilterClear() {
-
-}
-
 // helper functions
 // reads a lidar given a pin
 int read_lidar(int pin) {
@@ -265,15 +200,6 @@ int read_light(int pin) {
 void LwheelSpeed()
 {
   encoder[LEFT] ++;  //count the left wheel encoder interrupts
-}
-
-void readSensors() {
-  dist3.left = analogRead(A0);
-  dist3.right = analogRead(A1);
-  dist.front = read_lidar(8);
-  dist.back = read_lidar(9);
-  dist.left = read_lidar(10);
-  dist.right = read_lidar(11);
 }
 
 //interrupt function to count right encoder ticks
@@ -428,107 +354,199 @@ void randomWander() {
   delay(1000); 
 }
 
-/*
-  shyKid takes in inputs from all the lidar sensors, and outputs speeds to the motors to have the robot avoid obstacles.
-  Currently if it detects all walls, the robot sits in place, if the robot senses something in front, it will turn away.
-  If the robot senses nothing in front, it moves away proportional from the wall/something in front.
-  If nothing is detected, the robot just moves forward. 
-  If front & back is detected, but not the sides, the robot will randomly turn 90 degrees to the left or right.
-  
-  This function can be combined with other to amke higher level behaviour.
-*/
-void shyKid() {
+int m_map[6][6] = {-1, 99, -1, -1, -1, -1, -1, -1, -1, 99, 99, -1, -1, 99, -1, -1,99,99,-1,-1,-1,-1,-1,-1,99,-1,99,99,99,-1,-1,-1,99,-1,-1,-1};
+int currentPos[2] = {0,0};
+int goal[2] = {3,5};
+bool reachedGoal = 0;
+int currentDistanceToGoal = 0;
 
-  // read lidar data from struct
-  readSensors();
-  int rightSpd = 250;
-  int leftSpd = 250;
-  int gain = 40;
-  int delay_int = 1500;
+int columns = (sizeof(m_map) / sizeof(m_map[0]));
+int rows = (sizeof(m_map[0]) / sizeof(m_map[0][0]));
+int cells = rows*columns;
 
-  if(dist.front > minIRDistance && dist.left > minIRDistance && dist.right > minIRDistance && dist.back > minIRDistance) {
-    //detecting all Walls
-    leftSpd = 0;
-    rightSpd = 0;
-    stepperLeft.setSpeed(leftSpd); //set left motor speed
-    stepperRight.setSpeed(rightSpd); //set right motor speed
-    stepperLeft.runSpeed();
-    stepperRight.runSpeed();
-    delay(delay_int);
+int up;
+int down;
+int left;
+int right;
+int x = 0;
+int y = 0;
+String heading = "north";
 
-  } else if (dist.front > minIRDistance && dist.left > minIRDistance && dist.right > minIRDistance && dist.back < minIRDistance) {
-    // detecting Front, Left, & Right
-    goToAngle(180);
-    delay(delay_int);
-    readSensors();
+int box = 40;
 
-  } else if (dist.front > minIRDistance && dist.left > minIRDistance && dist.right < minIRDistance) {
-    // detecting Front & Left
-    goToAngle(-90);
-    delay(delay_int);
+void generateMap(int currentPos[2], int goal[2]) {
 
-  } else if (dist.front > minIRDistance && dist.left < minIRDistance && dist.right > minIRDistance) {
-    //Detecting Front & Right
-    goToAngle(90);
-    delay(delay_int);
+  m_map[goal[1]][goal[0]] = 0;
 
-  } else if (dist.front > minIRDistance && dist.left < minIRDistance && dist.right < minIRDistance && dist.back < minIRDistance) {
-    // Just Detecting Front
-    int backSpeed = (15 - dist.front) * 15 + 50;
+  printArray();
+  Serial.println();
 
-    rightSpd = -backSpeed;
-    leftSpd = -backSpeed;
-
-    stepperLeft.setSpeed(leftSpd);//set left motor speed
-    stepperRight.setSpeed(rightSpd);//set right motor speed
-    stepperLeft.runSpeed();
-    stepperRight.runSpeed();
-
-  } else if (dist.front > minIRDistance && dist.left < minIRDistance && dist.right < minIRDistance && dist.back > minIRDistance) {
-    // Detecting Front & Back
-    if (changeEveryOther ==1) {
-      goToAngle(90);
-      delay(delay_int);
-      changeEveryOther = 0;
-    } else {
-      goToAngle(90);
-      delay(delay_int);
-      changeEveryOther = 1;
+  for (int i = 1; i <= rows+columns; i++) {
+    for (int j = 0; j < columns; j++) {
+      for (int k = 0; k < rows; k++) {
+        if(m_map[j][k] == i - 1) {
+          if (j > 0 && m_map[j - 1][k] == -1) {
+            m_map[j - 1][k] = i; 
+          } 
+          if (j < columns - 1 && m_map[j + 1][k] == -1) {
+            m_map[j + 1][k] = i; 
+          }
+          if (k > 0 && m_map[j][k - 1] == -1) {
+            m_map[j][k - 1] = i;
+          }
+          if (k < columns - 1 && m_map[j][k + 1] == -1) {
+            m_map[j][k + 1] = i;
+          }
+          if (j > 0 && k > 0 && m_map[j - 1][k - 1] == -1) {
+            m_map[j - 1][k - 1] = i;
+          }
+          if (j > 0 && k < columns - 1 && m_map[j - 1][k + 1] == -1) {
+            m_map[j - 1][k + 1] = i;
+          }
+          if (j < rows - 1 && k > 0 && m_map[j + 1][k - 1] == -1) {
+            m_map[j + 1][k - 1] = i;
+          }
+          if (j < rows - 1 && k < columns - 1 && m_map[j + 1][k + 1] == -1) {
+            m_map[j + 1][k + 1] = i;
+          }
+        }
+      }
     }
-  
-  } else if (dist.front < minIRDistance && dist.left < minIRDistance && dist.right < minIRDistance && dist.back < minIRDistance) {
-    // Detects Nothing
-    leftSpd = 0;
-    rightSpd = 0;
-    stepperLeft.setSpeed(leftSpd);//set left motor speed
-    stepperRight.setSpeed(rightSpd);//set right motor speed
-    stepperLeft.runSpeed();
-    stepperRight.runSpeed();
-
-  } else {
-    // Detecting Nothing in Front
-    if (dist.left > minIRDistance && dist.left < closeIRDistance) {
-      leftSpd = leftSpd + (closeIRDistance-dist.left) * gain;
-    }
-
-    if (dist.right > minIRDistance && dist.right < closeIRDistance) {
-      rightSpd = rightSpd + (closeIRDistance-dist.left) * gain;
-    }
-
-    stepperLeft.setSpeed(leftSpd);//set left motor speed
-    stepperRight.setSpeed(rightSpd);//set right motor speed
-    stepperLeft.runSpeed();
-    stepperRight.runSpeed();
   }
+
+  m_map[currentPos[1]][currentPos[0]] = 100;
 }
 
-void lightFollow() {
-  leftSpd = (baseSpeed * (800 - dist3.left)) / 1024;
-  rightSpd = (baseSpeed * (800 - dist3.right)) / 1024;
+void runMap() {
 
-  stepperLeft.setSpeed(leftSpd);//set left motor speed
-  stepperRight.setSpeed(rightSpd);//set right motor speed
-  runAtSpeed();
+  //Serial.println("Running Map");
+
+  while(currentPos[0] != goal[0] || currentPos[1] != goal[1]) {
+    x = currentPos[0];
+    y = currentPos[1];
+
+    if(x - 1 >= 0) {
+      left = m_map[y][x - 1];
+    } else {
+      left = 99;
+    }
+
+    if(x + 1 < columns) {
+      right = m_map[y][x + 1];
+    } else {
+      right = 99;
+    }
+
+    if(y-1 >= 0) {
+      up = m_map[y-1][x];
+    } else {
+      up = 99;
+    }
+
+    if(y+1 < rows) {
+      down = m_map[y+1][x];
+    } else {
+      down = 99;
+    }
+
+    Serial.print("X Position: ");
+    Serial.println(x);
+    Serial.print("Y Position: ");
+    Serial.println(y);
+    /*
+    Serial.println();
+    Serial.print("left: ");
+    Serial.println(left);
+    Serial.print("Right: ");
+    Serial.println(right);
+    Serial.print("Up: "); 
+    Serial.println(up);
+    Serial.print("Down: ");
+    Serial.println(down);
+    */
+    if(up <= down && up <= right && up <= left) { // up is closest
+      if(heading.equals("west")) {
+        goToAngle(-90);
+      } else if (heading.equals("east")) {
+        goToAngle(90);
+      } else if (heading.equals("south")) {
+        goToAngle(175);
+      }
+
+      delay(300);
+      goForward(box);
+      heading = "north";
+      currentPos[0] = x;
+      currentPos[1] = y - 1;
+
+      Serial.println("North");
+      Serial.println();
+
+    } else if (down <= right && down <= left) { // down is closest
+      if(heading.equals("west")) {
+        goToAngle(90);
+      } else if (heading.equals("east")) {
+        goToAngle(-90);
+      } else if (heading.equals("north")) {
+        goToAngle(175);
+      }
+
+      delay(300);
+      goForward(box);
+      heading = "south";
+      currentPos[0] = x;
+      currentPos[1] = y + 1;
+
+      Serial.println("South");
+      Serial.println();
+
+    } else if (right <= left) { // right is closest
+      if(heading.equals("west")) {
+        goToAngle(175);
+      } else if (heading.equals("north")) {
+        goToAngle(-90);
+      } else if (heading.equals("south")) {
+        goToAngle(90);
+      }
+      delay(300);
+      goForward(box);
+      heading = "east";
+      currentPos[0] = x + 1;
+      currentPos[1] = y;
+
+      Serial.println("East");
+      Serial.println();
+
+    } else { // left is closest
+      if(heading.equals("east")) {
+        goToAngle(175);
+      } else if (heading.equals("north")) {
+        goToAngle(90);
+      } else if (heading.equals("south")) {
+        goToAngle(-90);
+      }
+      delay(300);
+      goForward(box);
+      heading = "West";
+
+      Serial.println("West");
+      Serial.println();
+
+      currentPos[0] = x - 1;
+      currentPos[1] = y;
+    }
+  }
+  reachedGoal = 1;
+}
+
+void printArray() {
+    for (int i = 0; i < (sizeof(m_map) / sizeof(m_map[0])); i++) {
+        for (int j = 0; j < (sizeof(m_map[0]) / sizeof(m_map[0][0])); j++) {
+            Serial.print(m_map[i][j]);
+            Serial.print("\t"); 
+        }
+        Serial.println(); 
+    }
 }
 
 // Setup for Multi-Core
@@ -536,25 +554,30 @@ void lightFollow() {
 void setupM4() {
   RPC.bind("read_lidars", read_lidars);  // bind a method to return the lidar data all at once
   RPC.bind("read_sonars", read_sonars);  // bind a method to return the lidar data all at once
-  RPC.bind("read_lights", read_lights);  // bind a method to return the light data at once
+  RPC.bind("read_lights", read_lights);   // bind a method to return the light data at once
 }
 
 //poll the M4 to read the data
 void loopM4() {
   // update the struct with current lidar data
-  dist3.left = read_light(A0);
-  dist3.right = read_light(A1);
+  dist.front = read_lidar(8);
+  dist.back = read_lidar(9);
+  dist.left = read_lidar(10);
+  dist.right = read_lidar(11);
+  dist2.right = read_sonar(3);
+  dist2.left = read_sonar(4);
+  dist3.left = read_light(45);
+  dist3.right = read_light(47);
 }
 
 //set up the M7 to be the client and run the state machine
 void setupM7() {
 
-  delay(500);
-
   // begin serial interface
+  state = "forward";
   int baudrate = 9600; //serial monitor baud rate'
   init_stepper(); //set up stepper motor
-  
+
   attachInterrupt(digitalPinToInterrupt(ltEncoder), LwheelSpeed, CHANGE);    //init the interrupt mode for the left encoder
   attachInterrupt(digitalPinToInterrupt(rtEncoder), RwheelSpeed, CHANGE);   //init the interrupt mode for the right encoder
 
@@ -562,35 +585,16 @@ void setupM7() {
   Serial.println("Robot starting...Put ON TEST STAND");
   delay(pauseTime); //always wait 2.5 seconds before the robot moves
 
-  
-  for (int i = 0; i < 5; i++) {
-    readSensors();
-    photoOffset = photoOffset + dist3.left + dist3.right;
-  }
-
-  photoOffset = photoOffset/10;
-
-  Serial.print("Photo-Offset is: ");
-  Serial.println(photoOffset);
-  Serial.println();
-  
+  generateMap(currentPos,goal);
+  delay(500);
+  printArray();
+  delay(500);
 }
 
 //read sensor data from M4 and write to M7
 void loopM7() {
-  readSensors();
-  leftDetect = dist3.left - environmentAverage > photoOffset;
-  rightDetect = dist3.right - environmentAverage > photoOffset;
-  if(leftDetect == 1 || rightDetect == 1) {
-    state = "lightFollow";
-    lightFollow();
-  } else if ((dist.left > 1 && dist.left < 10) || (dist.right > 1 && dist.right < 10) || (dist.front > 1 && dist.front < 10) || (dist.back > 1 && dist.back < 10)) {
-    shyKid();
-    state = "avoid";
-  } else {
-    state = "random";
-    randomWander();
-  }
+
+  runMap();
 }
 
 //setup function with infinite loops to send and receive sensor data between M4 and M7
@@ -610,4 +614,6 @@ void setup() {
 // loop() is never called as setup() never returns
 // this may need to be modified to run th estate machine.
 // consider usingnamespace rtos Threads as seen in previous example
-void loop() {}
+void loop() {
+  //runMap();
+}

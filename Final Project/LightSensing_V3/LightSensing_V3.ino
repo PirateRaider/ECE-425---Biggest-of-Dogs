@@ -1,7 +1,7 @@
 /*
 ***********************************
   RobotIntro.ino
-  Donald & Ben 2/7/25
+  Donald & Ben 2/23/25
 
   This program has basic motion algorithms for the robot.
   This includes goToAngle, goForward, goToGoal, circle, square, figureEight, pivot, spin, turn, and stop.
@@ -58,10 +58,6 @@
 #define ylwLED 7            //yellow LED for displaying states
 #define enableLED 13        //stepper enabled LED
 int leds[3] = {5,6,7};      //array of LED pin numbers
-int frontFilter;
-int backFilter;
-int leftFilter;
-int rightFilter;
 
 //define motor pin numbers
 #define stepperEnable 48    //stepper enable pin on stepStick 
@@ -106,31 +102,14 @@ int accumTicks[2] = {0, 0};         //variable to hold accumulated ticks since l
 #define rightSnr 3
 #define leftLight A1
 #define rightLight A0
-int windowSize = 4;
-MedianFilter2<int> rightSnrFilt(windowSize);
-MedianFilter2<int> leftSnrFilt(windowSize);
-MedianFilter2<int> frontLdrFilt(windowSize);
-MedianFilter2<int> backLdrFilt(windowSize);
-MedianFilter2<int> rightLdrFilt(windowSize);
-MedianFilter2<int> leftLdrFilt(windowSize);
 
 // Global Variables
-String state = "random";
-int dangerDistance = 10;
-int offset = 3;
-int avoidDistance;
-bool frontWall;
-int wallDetected = 0;
-int leftSpd = 0;
-int rightSpd = 0;
-int frontDistance = 0;
-int nonFrontDistance = 1;
-String direction = "north";
-int leftDetect;
-int rightDetect;
-int photoOffset = 200;
-int environmentAverage = 0;
-int baseSpeed = 500;
+String state = "random";  // robot starts in Random Wander
+int leftDetect;           // Boolean for if light is detected left
+int rightDetect;          // Boolean for if light is detected right
+int photoOffset = 200;    // Offset for the photonresistors before they activate/detect light
+int environmentAverage = 0; // holds environmental average when initializing
+int baseSpeed = 500;        // base speed for the robot when trakcing light
 
 // Structures
 // a struct to hold lidar data
@@ -522,6 +501,11 @@ void shyKid() {
   }
 }
 
+/*
+  lightFollow takes in inputs from the light sensors, and proportionally applies it to the motors to have the robot track the light source, and move backwards if the robot is too close.
+  It was found that a distance of around 3 inches is obtained before the robot will oscillate back and forth.
+*/
+
 void lightFollow() {
   leftSpd = (baseSpeed * (800 - dist3.left)) / 1024;
   rightSpd = (baseSpeed * (800 - dist3.right)) / 1024;
@@ -584,13 +568,26 @@ void loopM7() {
   if(leftDetect == 1 || rightDetect == 1) {
     state = "lightFollow";
     lightFollow();
+    digitalWrite(redLED, HIGH);//turn off red LED
+    digitalWrite(ylwLED, LOW);//turn off yellow LED
+    digitalWrite(grnLED, LOW);//turn on green LED
   } else if ((dist.left > 1 && dist.left < 10) || (dist.right > 1 && dist.right < 10) || (dist.front > 1 && dist.front < 10) || (dist.back > 1 && dist.back < 10)) {
     shyKid();
     state = "avoid";
+    digitalWrite(redLED, LOW);//turn off red LED
+    digitalWrite(ylwLED, HIGH);//turn off yellow LED
+    digitalWrite(grnLED, LOW);//turn on green LED
   } else {
     state = "random";
     randomWander();
+    digitalWrite(redLED, LOW);//turn off red LED
+    digitalWrite(ylwLED, LOW);//turn off yellow LED
+    digitalWrite(grnLED, HIGH);//turn on green LED
   }
+
+  Serial.println(dist3.left);
+  Serial.println(dist3.right);
+  Serial.println();
 }
 
 //setup function with infinite loops to send and receive sensor data between M4 and M7
